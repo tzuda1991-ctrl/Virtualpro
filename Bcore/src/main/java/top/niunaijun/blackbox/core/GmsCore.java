@@ -3,6 +3,7 @@ package top.niunaijun.blackbox.core;
 import android.content.pm.PackageManager;
 
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 
 import top.niunaijun.blackbox.BlackBoxCore;
@@ -82,17 +83,12 @@ public class GmsCore {
     }
 
     public static InstallResult installGApps(int userId) {
-        Set<String> googleApps = new HashSet<>();
-
-        googleApps.addAll(GOOGLE_SERVICE);
-        googleApps.addAll(GOOGLE_APP);
-
-        InstallResult installResult = installPackages(googleApps, userId);
-        if (!installResult.success) {
-            uninstallGApps(userId);
-            return installResult;
-        }
-        return installResult;
+        Set<String> googleApps = new LinkedHashSet<>();
+        googleApps.add(GSF_PKG);
+        googleApps.add(GMS_PKG);
+        googleApps.add("com.google.android.gsf.login");
+        googleApps.add(VENDING_PKG);
+        return installPackages(googleApps, userId);
     }
 
     public static void uninstallGApps(int userId) {
@@ -116,6 +112,7 @@ public class GmsCore {
     }
 
     public static boolean isInstalledGoogleService(int userId) {
-        return BlackBoxCore.get().isInstalled(GMS_PKG, userId);
+        return BlackBoxCore.get().isInstalled(GMS_PKG, userId)
+                && BlackBoxCore.get().isInstalled(GSF_PKG, userId);
     }
 }

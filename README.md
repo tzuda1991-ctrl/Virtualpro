@@ -1,12 +1,5 @@
 # ZU Virtual
 
-Independent Android project.
+Open **Add from phone** to clone an installed launcher app or game, or **Import APK** to install a standalone APK. Tap its name under **My apps** to launch it in the local BlackBox virtual space. For apps distributed as splits, use the installed phone copy.
 
-Current stage:
-- Import one APK using Android document picker.
-- Read its application label, icon, package name and version.
-- Keep the selected APK in private application storage.
-- Restore the selected APK when the app is reopened.
-
-The virtual runtime is not implemented yet. The START button is intentionally
-not presented as a working virtual launcher until a real runtime exists.
+**Play Store** sets up the phone's Google Services Framework, Google Play services and Play Store in the virtual space. **Play Games** can also import the phone's Play Games app. Compatibility, sign-in and downloads depend on the device and the guest app. This build targets ARM64 phones.

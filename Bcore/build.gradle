@@ -33,11 +33,12 @@ android {
         }
     }
 
+    ndkVersion "29.0.14206865"
+
     externalNativeBuild {
         ndkBuild {
             path 'src/main/cpp/Android.mk'
         }
-        ndkVersion = "29.0.14206865"
     }
 
     compileOptions {
