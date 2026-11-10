@@ -1,0 +1,191 @@
+#include "Rect.h"
+#include "Quaternion.h"
+#include "Vector2.h"
+#include "Vector3.h"
+#include "MonoString.h"
+#include "Color.h"
+#include <vector>
+#include <stdexcept>
+
+using namespace std;
+
+template<typename T>
+struct monoArray {
+    void *klass;
+    void *monitor;
+    void *bounds;
+    int max_length;
+    T *vector;
+
+    int getLength() {
+        return max_length;
+    }
+
+    T *getPointer() {
+        return vector;
+    }
+
+    uintptr_t getData() {
+        return reinterpret_cast<uintptr_t>(vector);
+    }
+
+    T &operator[](const unsigned int m_uIndex) {
+        if (m_uIndex >= max_length) {
+            throw std::out_of_range("Index out of range");
+        }
+        return vector[m_uIndex];
+    }
+
+    T &at(const unsigned int m_uIndex) {
+        return operator[](m_uIndex);
+    }
+
+    std::vector<T> toVector() {
+        std::vector<T> rs;
+        rs.reserve(this->max_length);
+        for (int i = 0; i < this->max_length; i++)
+            rs.push_back(this->at(i));
+        return rs;
+    }
+};
+
+template <typename T>
+struct monoList {
+    void *klass;
+    void *monitor;
+    monoArray<T> *items;
+    int size;
+    int version;
+
+    T getItems() {
+        return items->getPointer(); 
+    }
+
+    int getSize() {
+        return size;
+    }
+
+    int getVersion() {
+        return version;
+    }
+};
+
+
+template <typename K, typename V>
+struct monoDictionary {
+    void *unk0;
+    void *unk1;
+    monoArray<int**> *table;
+    monoArray<void**> *linkSlots;
+    monoArray<K> *keys;
+    monoArray<V> *values;
+    int touchedSlots;
+    int emptySlot;
+    int size;
+    
+    K getKeys() {
+        return keys->getPointer();
+    }
+    V getValues() {
+        return values->getPointer();
+    }
+    int getNumKeys() {
+        return keys->getLength();
+    }
+    int getNumValues() {
+        return values->getLength();
+    }
+    int getSize() {
+        return size;
+    }
+};
+
+struct LayerMask {
+    int mask;
+    
+    LayerMask() {
+        this->mask = 0;
+    }
+public:
+    int get_value() {
+        return mask;
+    }
+    void set_value(int value) {
+        mask = value;
+    }
+};
+
+struct RaycastHit {
+    Vector3 m_Point;
+    Vector3 m_Normal;
+    uint32_t m_FaceID;
+    float m_Distance;
+    Vector2 m_UV;
+    int m_Collider;
+};
+
+struct Ray {
+    Vector3 m_Origin;
+    Vector3 m_Direction;
+	
+public:
+	Vector3 get_Origin() {
+		return this->m_Origin;
+	}
+	Vector3 get_Direction() {
+		return this->m_Direction;
+	}
+	void set_Origin(Vector3 value) {
+		this->m_Origin = value;
+	}
+	void set_Direction(Vector3 value) {
+		this->m_Direction = value;
+	}
+	Vector3 GetPoint(float distance) {
+		return this->m_Origin + this->m_Direction * distance;
+	}
+	string ToString() {
+		string text = "";
+		text += "Origin(";
+		text += to_string(this->m_Origin.x) + ", ";
+		text += to_string(this->m_Origin.y) + ", ";
+		text += to_string(this->m_Origin.z) + ")\n";
+		text += "Direction(";
+		text += to_string(this->m_Direction.x) + ", ";
+		text += to_string(this->m_Direction.y) + ", ";
+		text += to_string(this->m_Direction.z) + ")";
+		return text;
+	}
+	}
+};
+
+enum TouchPhase {
+	Began = 0,
+	Moved = 1,
+	Stationary = 2,
+	Ended = 3,
+	Canceled = 4,
+};
+
+enum TouchType {
+	Direct = 0,
+	Indirect = 1,
+	Stylus = 2,
+};
+
+struct Touch {
+	int m_FingerId;
+	Vector2 m_Position;
+	Vector2 m_RawPosition;
+	Vector2 m_PositionDelta;
+	float m_TimeDelta;
+	int m_TapCount;
+	TouchPhase m_Phase;
+	TouchType m_Type;
+	float m_Pressure;
+	float m_maximumPossiblePressure;
+	float m_Radius;
+	float m_RadiusVariance;
+	float m_AltitudeAngle;
+	float m_AzimuthAngle;
+};
