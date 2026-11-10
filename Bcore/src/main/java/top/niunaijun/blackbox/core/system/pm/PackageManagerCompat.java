@@ -375,6 +375,11 @@ public class PackageManagerCompat {
         if (ps != null) {
             AssetManager assets = BRAssetManager.get()._new();
             BRAssetManager.get(assets).addAssetPath(ps.pkg.baseCodePath);
+            if (appInfo.splitSourceDirs != null) {
+                for (String split : appInfo.splitSourceDirs) {
+                    BRAssetManager.get(assets).addAssetPath(split);
+                }
+            }
             Resources hostRes = context.getResources();
             return new Resources(assets, hostRes.getDisplayMetrics(), hostRes.getConfiguration());
         }

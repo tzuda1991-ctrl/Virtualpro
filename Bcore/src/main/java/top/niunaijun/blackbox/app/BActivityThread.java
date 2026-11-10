@@ -440,47 +440,11 @@ public class BActivityThread extends IBActivityThread.Stub {
         try {
             onBeforeCreateApplication(packageName, processName, packageContext);
             
-            // Try to create the application with better error handling
-            try {
-                application = BRLoadedApk.get(loadedApk).makeApplication(false, null);
-            } catch (Exception makeAppException) {
-                Slog.e(TAG, "Failed to makeApplication, trying fallback approach", makeAppException);
-                application = null;
-            }
-            
-            // If application is still null, try alternative approaches
+            application = BRLoadedApk.getWithException(loadedApk).makeApplication(false, null);
             if (application == null) {
-                Slog.w(TAG, "makeApplication returned null, attempting fallback creation");
-                
-                // Try with different parameters
-                try {
-                    application = BRLoadedApk.get(loadedApk).makeApplication(true, null);
-                } catch (Exception e) {
-                    Slog.e(TAG, "Fallback makeApplication also failed", e);
-                }
-                
-                // If still null, try to create a minimal application context
-                if (application == null) {
-                    Slog.w(TAG, "Creating minimal application context as fallback");
-                    try {
-                        // Create a minimal application object or use the package context
-                        application = (Application) packageContext;
-                        if (application == null) {
-                            Slog.e(TAG, "Even package context is null, this is critical");
-                            throw new RuntimeException("Unable to create application context");
-                        }
-                    } catch (Exception contextException) {
-                        Slog.e(TAG, "Failed to create fallback application context", contextException);
-                        throw new RuntimeException("Unable to makeApplication - all fallback attempts failed", contextException);
-                    }
-                }
+                throw new IllegalStateException("Failed to create guest Application for " + packageName);
             }
-            
-            if (application == null) {
-                Slog.e(TAG, "makeApplication application Error! All attempts failed");
-                throw new RuntimeException("Unable to create application - all creation methods failed");
-            }
-            
+
             mInitialApplication = application;
             BRActivityThread.get(BlackBoxCore.mainThread())._set_mInitialApplication(mInitialApplication);
             ContextCompat.fix((Context) BRActivityThread.get(BlackBoxCore.mainThread()).getSystemContext());
@@ -906,8 +870,7 @@ public class BActivityThread extends IBActivityThread.Stub {
         try {
             for (ProviderInfo providerInfo : providers) {
                 try {
-                    if (processName.equals(providerInfo.processName) ||
-                            providerInfo.processName.equals(context.getPackageName()) || providerInfo.multiprocess) {
+                    if (processName.equals(providerInfo.processName) || providerInfo.multiprocess) {
                         installProvider(BlackBoxCore.mainThread(), context, providerInfo, null);
                     }
                 } catch (SecurityException se) {
@@ -1034,8 +997,7 @@ public class BActivityThread extends IBActivityThread.Stub {
         try {
             for (ProviderInfo providerInfo : provider) {
                 try {
-                    if (processName.equals(providerInfo.processName) ||
-                            providerInfo.processName.equals(context.getPackageName()) || providerInfo.multiprocess) {
+                    if (processName.equals(providerInfo.processName) || providerInfo.multiprocess) {
                         installProvider(BlackBoxCore.mainThread(), context, providerInfo, null);
                     }
                 } catch (Throwable ignored) {

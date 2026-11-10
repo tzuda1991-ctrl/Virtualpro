@@ -62,8 +62,6 @@ import top.niunaijun.blackbox.core.system.BProcessManagerService;
 import top.niunaijun.blackbox.core.system.ISystemService;
 import top.niunaijun.blackbox.core.system.ProcessRecord;
 import top.niunaijun.blackbox.core.system.pm.BPackageManagerService;
-import top.niunaijun.blackbox.core.system.pm.PackageMonitor;
-import top.niunaijun.blackbox.core.system.user.BUserHandle;
 import top.niunaijun.blackbox.utils.ArrayUtils;
 import top.niunaijun.blackbox.utils.CloseUtils;
 import top.niunaijun.blackbox.utils.FileUtils;
@@ -74,7 +72,7 @@ import top.niunaijun.blackbox.utils.compat.AccountManagerCompat;
  * Created by BlackBox on 2022/3/3.
  */
 @SuppressLint("InlinedApi")
-public class BAccountManagerService extends IBAccountManagerService.Stub implements ISystemService , PackageMonitor {
+public class BAccountManagerService extends IBAccountManagerService.Stub implements ISystemService {
     private static final String TAG = "AccountManagerService";
 
     private static BAccountManagerService sService = new BAccountManagerService();
@@ -87,7 +85,6 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
 
     private final BPackageManagerService mPms;
     private final Map<Integer, BUserAccounts> mUserAccountsMap = new HashMap<>();
-    private final AuthenticatorCache mAuthenticatorCache = new AuthenticatorCache();
 
     private final LinkedList<TokenCache> mTokenCaches = new LinkedList<>();
     private final LinkedHashMap<String, Session> mSessions = new LinkedHashMap<String, Session>();
@@ -107,18 +104,6 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
     @Override
     public void systemReady() {
         loadAccounts();
-        loadAuthenticatorCache(null);
-        mPms.addPackageMonitor(this);
-    }
-
-    @Override
-    public void onPackageUninstalled(String packageName, boolean isRemove, int userId) {
-        loadAuthenticatorCache(null);
-    }
-
-    @Override
-    public void onPackageInstalled(String packageName, int userId) {
-        loadAuthenticatorCache(packageName);
     }
 
     private void loadAccounts() {
@@ -201,16 +186,9 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
 
     @Override
     public AuthenticatorDescription[] getAuthenticatorTypes(int userId) throws RemoteException {
-        // Only allow the system process to read accounts of other users
-        BUserAccounts userAccounts = getUserAccounts(userId);
         List<AuthenticatorDescription> authenticatorDescriptions = new ArrayList<>();
-        synchronized (userAccounts.lock) {
-            for (BAccount account : userAccounts.accounts) {
-                AuthenticatorInfo authenticatorInfo = mAuthenticatorCache.authenticators.get(account.account.type);
-                if (authenticatorInfo != null) {
-                    authenticatorDescriptions.add(authenticatorInfo.desc);
-                }
-            }
+        for (AuthenticatorInfo info : findAuthenticators(userId).values()) {
+            authenticatorDescriptions.add(info.desc);
         }
         return authenticatorDescriptions.toArray(new AuthenticatorDescription[]{});
     }
@@ -540,7 +518,7 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
             return;
         }
         final BUserAccounts accounts = getUserAccounts(userId);
-        AuthenticatorInfo authenticatorInfo = mAuthenticatorCache.authenticators.get(account.type);
+        AuthenticatorInfo authenticatorInfo = findAuthenticators(userId).get(account.type);
 
         final boolean customTokens =
                 authenticatorInfo != null && authenticatorInfo.desc.customTokens;
@@ -699,7 +677,7 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
 
     @Override
     public void addAccountAsUser(IAccountManagerResponse response, String accountType, String authTokenType, String[] requiredFeatures, boolean expectActivityLaunch, Bundle options, int userId) throws RemoteException {
-        // ignore
+        addAccount(response, accountType, authTokenType, requiredFeatures, expectActivityLaunch, options, userId);
     }
 
     @Override
@@ -1380,10 +1358,6 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
         }
     }
 
-    private static final class AuthenticatorCache {
-        final Map<String, AuthenticatorInfo> authenticators = new HashMap<>();
-    }
-
     private static AuthenticatorDescription parseAuthenticatorDescription(Resources resources, String packageName,
                                                                           AttributeSet attributeSet) {
         RstyleableStatic rstyleableStatic = BRRstyleable.get();
@@ -1405,15 +1379,12 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
         }
     }
 
-    public void loadAuthenticatorCache(String packageName) {
-        mAuthenticatorCache.authenticators.clear();
+    private Map<String, AuthenticatorInfo> findAuthenticators(int userId) {
         Intent intent = new Intent(AccountManager.ACTION_AUTHENTICATOR_INTENT);
-        if (packageName != null) {
-            intent.setPackage(packageName);
-        }
-        generateServicesMap(
-                mPms.queryIntentServices(intent, PackageManager.GET_META_DATA, BUserHandle.USER_ALL),
-                mAuthenticatorCache.authenticators, new RegisteredServicesParser());
+        Map<String, AuthenticatorInfo> authenticators = new HashMap<>();
+        generateServicesMap(mPms.queryIntentServices(intent, PackageManager.GET_META_DATA, userId),
+                authenticators, new RegisteredServicesParser());
+        return authenticators;
     }
 
     private void generateServicesMap(List<ResolveInfo> services, Map<String, AuthenticatorInfo> map,
@@ -1438,6 +1409,8 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
                     }
                 } catch (Exception e) {
                     e.printStackTrace();
+                } finally {
+                    parser.close();
                 }
             }
         }
@@ -1773,7 +1746,7 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
          * if no authenticator or the bind fails then return false, otherwise return true
          */
         private boolean bindToAuthenticator(String authenticatorType) {
-            AuthenticatorInfo authenticatorInfo = mAuthenticatorCache.authenticators.get(authenticatorType);
+            AuthenticatorInfo authenticatorInfo = findAuthenticators(mAccounts.userId).get(authenticatorType);
             if (authenticatorInfo == null) {
                 if (Log.isLoggable(TAG, Log.VERBOSE)) {
                     Log.v(TAG, "there is no authenticator for " + authenticatorType
