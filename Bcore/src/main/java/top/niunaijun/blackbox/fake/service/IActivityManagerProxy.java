@@ -23,8 +23,6 @@ import black.android.app.BRActivityManagerNative;
 import black.android.app.BRActivityManagerOreo;
 import black.android.app.BRLoadedApkReceiverDispatcher;
 import black.android.app.BRLoadedApkReceiverDispatcherInnerReceiver;
-import black.android.app.BRLoadedApkServiceDispatcher;
-import black.android.app.BRLoadedApkServiceDispatcherInnerConnection;
 import black.android.content.BRContentProviderNative;
 import black.android.content.pm.BRUserInfo;
 import black.android.util.BRSingleton;
@@ -308,10 +306,6 @@ public class IActivityManagerProxy extends ClassInvocationStub {
                     IServiceConnection proxy = ServiceConnectionDelegate.createProxy(connection, intent);
                     args[4] = proxy;
 
-                    WeakReference<?> weakReference = BRLoadedApkServiceDispatcherInnerConnection.get(connection).mDispatcher();
-                    if (weakReference != null) {
-                        BRLoadedApkServiceDispatcher.get(weakReference.get())._set_mConnection(proxy);
-                    }
                 }
 
                 //Log.d(TAG,"Intent:" + intent + "-->" + "proxyIntent:" + proxyIntent + ",flag:" + intent.getFlags() + "proxyFlag:" + proxyIntent.getFlags());
@@ -319,9 +313,11 @@ public class IActivityManagerProxy extends ClassInvocationStub {
                     proxyIntent.getComponent().getPackageName().equals(BlackBoxCore.getHostPkg())){
                     int flagsIndex = getFlagsIndex(args);
                     if (flagsIndex >= 0) {
-                        int flags = MethodParameterUtils.toInt(args[flagsIndex]);
-                        flags &= ~Context.BIND_EXTERNAL_SERVICE;
-                        args[flagsIndex] = flags;
+                        if (args[flagsIndex] instanceof Long) {
+                            args[flagsIndex] = (Long) args[flagsIndex] & ~(Context.BIND_EXTERNAL_SERVICE & 0xffffffffL);
+                        } else {
+                            args[flagsIndex] = (Integer) args[flagsIndex] & ~Context.BIND_EXTERNAL_SERVICE;
+                        }
                     }
                 }
                 args[callingPackageIndex] = BlackBoxCore.getHostPkg();
@@ -402,11 +398,13 @@ public class IActivityManagerProxy extends ClassInvocationStub {
                 return method.invoke(who, args);
             }
             BlackBoxCore.getBActivityManager().unbindService(iServiceConnection.asBinder(), BActivityThread.getUserId());
-            ServiceConnectionDelegate delegate = ServiceConnectionDelegate.getDelegate(iServiceConnection.asBinder());
+            IServiceConnection delegate = ServiceConnectionDelegate.getDelegate(iServiceConnection.asBinder());
             if (delegate != null) {
                 args[0] = delegate;
             }
-            return method.invoke(who, args);
+            Object result = method.invoke(who, args);
+            if (delegate != null) ServiceConnectionDelegate.forget(iServiceConnection.asBinder(), delegate);
+            return result;
         }
     }
 
