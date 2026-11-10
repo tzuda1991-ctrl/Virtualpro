@@ -240,29 +240,14 @@ import top.niunaijun.blackbox.utils.compat.PackageParserCompat;
         }
     }
 
-    private BPackageSettings reInstallBySystem(PackageInfo systemPackageInfo, InstallOption option) throws Exception {
+    private BPackageSettings reInstallBySystem(PackageInfo systemPackageInfo, InstallOption option) throws Throwable {
         Slog.d(TAG, "reInstallBySystem: " + systemPackageInfo.packageName);
-        PackageParser.Package aPackage = parserApk(systemPackageInfo.applicationInfo.sourceDir);
-        if (aPackage == null) {
-            throw new RuntimeException("parser apk error.");
-        }
-        aPackage.applicationInfo = BlackBoxCore.getPackageManager().getPackageInfo(aPackage.packageName, 0).applicationInfo;
+        PackageParser.Package aPackage = PackageParserCompat.parseForInstall(
+                new File(systemPackageInfo.applicationInfo.sourceDir), systemPackageInfo.applicationInfo);
         return getPackageLPw(aPackage.packageName, aPackage, option);
     }
 
     public void removePackage(String packageName) {
         mPackages.remove(packageName);
-    }
-
-    private PackageParser.Package parserApk(String file) {
-        try {
-            PackageParser parser = PackageParserCompat.createParser(new File(file));
-            PackageParser.Package aPackage = PackageParserCompat.parsePackage(parser, new File(file), 0);
-            PackageParserCompat.collectCertificates(parser, aPackage, 0);
-            return aPackage;
-        } catch (Throwable t) {
-            t.printStackTrace();
-        }
-        return null;
     }
 }

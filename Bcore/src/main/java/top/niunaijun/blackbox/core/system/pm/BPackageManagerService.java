@@ -712,15 +712,10 @@ public class BPackageManagerService extends IBPackageManagerService.Stub impleme
                 return result.installError(packageArchiveInfo.packageName,
                         msg + "\n" + (BlackBoxCore.is64Bit() ? "The box does not support 32-bit Application" : "The box does not support 64-bit Application"));
             }
-            PackageParser.Package aPackage = parserApk(apkFile.getAbsolutePath());
-            if (aPackage == null) {
-                return result.installError("parser apk error.");
-            }
+            ApplicationInfo installed = option.isFlag(InstallOption.FLAG_SYSTEM)
+                    ? BlackBoxCore.getPackageManager().getApplicationInfo(packageName, 0) : null;
+            PackageParser.Package aPackage = PackageParserCompat.parseForInstall(apkFile, installed);
             result.packageName = aPackage.packageName;
-
-            if (option.isFlag(InstallOption.FLAG_SYSTEM)) {
-                aPackage.applicationInfo = BlackBoxCore.getPackageManager().getPackageInfo(aPackage.packageName, 0).applicationInfo;
-            }
             BPackageSettings bPackageSettings = mSettings.getPackageLPw(aPackage.packageName, aPackage, option);
 
             // stop pkg
@@ -747,18 +742,6 @@ public class BPackageManagerService extends IBPackageManagerService.Stub impleme
             }
             Slog.d(TAG, "install finish: " + (System.currentTimeMillis() - l) + "ms");
         }
-    }
-
-    private PackageParser.Package parserApk(String file) {
-        try {
-            PackageParser parser = PackageParserCompat.createParser(new File(file));
-            PackageParser.Package aPackage = PackageParserCompat.parsePackage(parser, new File(file), 0);
-            PackageParserCompat.collectCertificates(parser, aPackage, 0);
-            return aPackage;
-        } catch (Throwable t) {
-            t.printStackTrace();
-        }
-        return null;
     }
 
     static String fixProcessName(String defProcessName, String processName) {

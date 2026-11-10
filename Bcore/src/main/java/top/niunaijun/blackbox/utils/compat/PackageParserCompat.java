@@ -1,5 +1,6 @@
 package top.niunaijun.blackbox.utils.compat;
 
+import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageParser;
 import android.content.pm.PackageParser.Package;
 import android.os.Build;
@@ -25,6 +26,18 @@ public class PackageParserCompat {
     private static final int API_LEVEL = Build.VERSION.SDK_INT;
     private static final int myUserId = 0;
 
+
+    public static Package parseForInstall(File apk, ApplicationInfo installed) throws Throwable {
+        File source = installed != null && installed.splitSourceDirs != null
+                && installed.splitSourceDirs.length > 0 ? apk.getParentFile() : apk;
+        PackageParser parser = createParser(source);
+        Package pkg = parsePackage(parser, source, 0);
+        collectCertificates(parser, pkg, 0);
+        if (installed != null) {
+            pkg.applicationInfo = installed;
+        }
+        return pkg;
+    }
 
     public static PackageParser createParser(File packageFile) {
         if (API_LEVEL >= M) {
