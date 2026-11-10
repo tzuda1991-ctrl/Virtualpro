@@ -44,6 +44,9 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -61,6 +64,7 @@ import top.niunaijun.blackbox.core.env.BEnvironment;
 import top.niunaijun.blackbox.core.system.BProcessManagerService;
 import top.niunaijun.blackbox.core.system.ISystemService;
 import top.niunaijun.blackbox.core.system.ProcessRecord;
+import top.niunaijun.blackbox.core.system.am.BActivityManagerService;
 import top.niunaijun.blackbox.core.system.pm.BPackageManagerService;
 import top.niunaijun.blackbox.utils.ArrayUtils;
 import top.niunaijun.blackbox.utils.CloseUtils;
@@ -79,8 +83,8 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
 
     private static final Account[] EMPTY_ACCOUNT_ARRAY = new Account[]{};
 
-    // Messages that can be sent on mHandler
-    private static final int MESSAGE_TIMED_OUT = 3;
+    private static final long AUTH_BIND_TIMEOUT_MS = 30_000L;
+    private final ExecutorService bindingWorker = Executors.newSingleThreadExecutor();
     private static final int MESSAGE_COPY_SHARED_ACCOUNT = 4;
 
     private final BPackageManagerService mPms;
@@ -1435,7 +1439,12 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
         private int mNumRequestContinued = 0;
         private int mNumErrors = 0;
 
-        IAccountAuthenticator mAuthenticator = null;
+        volatile IAccountAuthenticator mAuthenticator = null;
+        private volatile boolean closed;
+        // Owned by bindingWorker, including cleanup after cancellation.
+        private boolean platformBound;
+        private boolean virtualBound;
+        private final Runnable bindTimeout = () -> bindingError("Virtual account service timed out");
 
         private final boolean mStripAuthTokenFromResult;
         protected final BUserAccounts mAccounts;
@@ -1523,6 +1532,7 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
                     // the session was already closed, so bail out now
                     return;
                 }
+                closed = true;
             }
             if (mResponse != null) {
                 // stop listening for response deaths
@@ -1557,31 +1567,78 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
             if (Log.isLoggable(TAG, Log.VERBOSE)) {
                 Log.v(TAG, "initiating bind to authenticator type " + mAccountType);
             }
-            if (!bindToAuthenticator(mAccountType)) {
-                Log.d(TAG, "bind attempt failed for " + toDebugString());
-                onError(AccountManager.ERROR_CODE_REMOTE_EXCEPTION, "bind failure");
+            mHandler.postDelayed(bindTimeout, AUTH_BIND_TIMEOUT_MS);
+            bindingWorker.execute(() -> {
+                if (closed) return;
+                try {
+                    if (!bindToAuthenticator(mAccountType)) {
+                        bindingError("Virtual authenticator could not be bound");
+                    }
+                } catch (RemoteException | RuntimeException e) {
+                    Log.w(TAG, "Virtual authenticator bind failed", e);
+                    bindingError("Virtual authenticator bind failed (" + e.getClass().getSimpleName() + ")");
+                }
+            });
+        }
+
+        private void bindingError(String message) {
+            if (closed) return;
+            onError(AccountManager.ERROR_CODE_REMOTE_EXCEPTION, message);
+            if (!"com.google".equals(mAccountType)) return;
+            AtomicFile report = new AtomicFile(new File(mContext.getFilesDir(), "google-bind-error.txt"));
+            FileOutputStream out = null;
+            try {
+                out = report.startWrite();
+                out.write((new java.util.Date() + "  " + message).getBytes(StandardCharsets.UTF_8));
+                report.finishWrite(out);
+            } catch (IOException e) {
+                if (out != null) report.failWrite(out);
             }
         }
 
         private void unbind() {
-            if (mAuthenticator != null) {
-                mAuthenticator = null;
-                mContext.unbindService(this);
-            }
+            mAuthenticator = null;
+            bindingWorker.execute(() -> {
+                try {
+                    if (platformBound) mContext.unbindService(this);
+                } catch (IllegalArgumentException e) {
+                    Log.w(TAG, "Authenticator already unbound", e);
+                } finally {
+                    if (virtualBound) {
+                        try {
+                            BActivityManagerService.get().unbindService(asBinder(), mAccounts.userId);
+                        } catch (RemoteException e) {
+                            Log.w(TAG, "Virtual authenticator unbind failed", e);
+                        }
+                    }
+                }
+            });
         }
 
         public void cancelTimeout() {
-            mHandler.removeMessages(MESSAGE_TIMED_OUT, this);
+            mHandler.removeCallbacks(bindTimeout);
+        }
+
+        @Override
+        public void onNullBinding(ComponentName name) {
+            bindingError("Virtual authenticator returned an empty service");
+        }
+
+        @Override
+        public void onBindingDied(ComponentName name) {
+            bindingError("Virtual authenticator process disconnected");
         }
 
         @Override
         public void onServiceConnected(ComponentName name, IBinder service) {
+            if (closed) return;
+            cancelTimeout();
             mAuthenticator = IAccountAuthenticator.Stub.asInterface(service);
             try {
                 run();
-            } catch (RemoteException e) {
-                onError(AccountManager.ERROR_CODE_REMOTE_EXCEPTION,
-                        "remote exception");
+            } catch (RemoteException | SecurityException e) {
+                Log.w(TAG, "Authenticator request failed", e);
+                bindingError("Virtual authenticator rejected request (" + e.getClass().getSimpleName() + ")");
             }
         }
 
@@ -1635,16 +1692,16 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
                 boolean needUpdate = mUpdateLastAuthenticatedTime
                         && (isSuccessfulConfirmCreds || isSuccessfulUpdateCredsOrAddAccount);
                 if (needUpdate || mAuthDetailsRequired) {
-                    boolean accountPresent = isAccountPresentForCaller(mAccountName, mAccountType, mAccounts.userId);
+                    String name = mAccountName != null ? mAccountName : result.getString(AccountManager.KEY_ACCOUNT_NAME);
+                    boolean accountPresent = !TextUtils.isEmpty(name)
+                            && isAccountPresentForCaller(name, mAccountType, mAccounts.userId);
                     if (needUpdate && accountPresent) {
-                        updateLastAuthenticatedTime(mAccounts, new Account(mAccountName, mAccountType));
+                        updateLastAuthenticatedTime(mAccounts, new Account(name, mAccountType));
                     }
                     if (mAuthDetailsRequired) {
                         long lastAuthenticatedTime = -1;
                         if (accountPresent) {
-                            lastAuthenticatedTime = mAccounts
-                                    .findAccountLastAuthenticatedTime(
-                                            new Account(mAccountName, mAccountType));
+                            lastAuthenticatedTime = mAccounts.findAccountLastAuthenticatedTime(new Account(name, mAccountType));
                         }
                         result.putLong(AccountManager.KEY_LAST_AUTHENTICATED_TIME,
                                 lastAuthenticatedTime);
@@ -1745,7 +1802,7 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
          * find the component name for the authenticator and initiate a bind
          * if no authenticator or the bind fails then return false, otherwise return true
          */
-        private boolean bindToAuthenticator(String authenticatorType) {
+        private boolean bindToAuthenticator(String authenticatorType) throws RemoteException {
             AuthenticatorInfo authenticatorInfo = findAuthenticators(mAccounts.userId).get(authenticatorType);
             if (authenticatorInfo == null) {
                 if (Log.isLoggable(TAG, Log.VERBOSE)) {
@@ -1772,18 +1829,17 @@ public class BAccountManagerService extends IBAccountManagerService.Stub impleme
             if (Log.isLoggable(TAG, Log.VERBOSE)) {
                 Log.v(TAG, "performing bindService to " + componentName);
             }
-            int flags = Context.BIND_AUTO_CREATE;
-//            if (mAuthenticatorCache.getBindInstantServiceAllowed(mAccounts.userId)) {
-//                flags |= Context.BIND_ALLOW_INSTANT;
-//            }
-            if (!mContext.bindService(intent, this, flags)) {
-                if (Log.isLoggable(TAG, Log.VERBOSE)) {
-                    Log.v(TAG, "bindService to " + componentName + " failed");
-                }
+            // Resolve and start the authenticator inside this virtual user first.
+            // Never pass the protected device authenticator to Context.bindService.
+            Intent proxy = BActivityManagerService.get().bindService(intent, asBinder(), null, mAccounts.userId);
+            if (proxy == null || proxy.getComponent() == null
+                    || !mContext.getPackageName().equals(proxy.getComponent().getPackageName())) {
                 return false;
             }
-
-            return true;
+            virtualBound = true;
+            if (closed) return false;
+            platformBound = mContext.bindService(proxy, this, Context.BIND_AUTO_CREATE);
+            return platformBound;
         }
     }
 

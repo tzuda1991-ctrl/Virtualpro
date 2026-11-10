@@ -147,7 +147,10 @@ class MainActivity : Activity() {
                     "${java.util.Date(it.timestamp)}  ${it.processName}  reason=${it.reason} status=${it.status}"
                 }
         }.getOrNull() else null
-        val report = listOfNotNull(stack, exits).filter { it.isNotBlank() }.joinToString("\n")
+        val bindError = runCatching {
+            AtomicFile(File(filesDir, "google-bind-error.txt")).openRead().bufferedReader().use { it.readText() }
+        }.getOrNull()
+        val report = listOfNotNull(bindError, stack, exits).filter { it.isNotBlank() }.joinToString("\n")
         AlertDialog.Builder(this).setTitle("Play crash details")
             .setMessage(report.ifEmpty { "No crash recorded yet. Open Play Store, then check here again." })
             .setPositiveButton("Close", null).apply {

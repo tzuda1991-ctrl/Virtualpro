@@ -18,7 +18,7 @@ class App : Application() {
                 if (guest !in setOf("com.android.vending", "com.google.android.gms", "com.google.android.gsf"))
                     return@runCatching
                 val trace = buildString {
-                    appendLine("$guest • ZU Virtual 1.4 • ${java.util.Date()}")
+                    appendLine("$guest • ZU Virtual 1.5 • ${java.util.Date()}")
                     for (cause in generateSequence(error) { it.cause }.take(6)) {
                         appendLine(cause.javaClass.name)
                         if (cause is ClassCastException) appendLine(cause.message?.take(350))

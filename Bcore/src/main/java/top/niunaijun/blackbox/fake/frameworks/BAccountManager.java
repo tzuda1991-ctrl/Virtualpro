@@ -209,8 +209,8 @@ public class BAccountManager extends BlackManager<IBAccountManagerService> {
                     Bundle options) {
         try {
             getService().addAccount(response, accountType, authTokenType, requiredFeatures, expectActivityLaunch, options, BActivityThread.getUserId());
-        } catch (RemoteException e) {
-            e.printStackTrace();
+        } catch (RemoteException | SecurityException e) {
+            reportAccountFailure(response, e);
         }
     }
 
@@ -219,8 +219,19 @@ public class BAccountManager extends BlackManager<IBAccountManagerService> {
                           Bundle options) {
         try {
             getService().addAccountAsUser(response, accountType, authTokenType, requiredFeatures, expectActivityLaunch, options, BActivityThread.getUserId());
-        } catch (RemoteException e) {
-            e.printStackTrace();
+        } catch (RemoteException | SecurityException e) {
+            reportAccountFailure(response, e);
+        }
+    }
+
+    private void reportAccountFailure(IAccountManagerResponse response, Exception error) {
+        android.util.Log.w("BAccountManager", "Virtual account request failed", error);
+        if (response == null) return;
+        try {
+            response.onError(android.accounts.AccountManager.ERROR_CODE_REMOTE_EXCEPTION,
+                    "Virtual account service could not start sign-in");
+        } catch (RemoteException ignored) {
+            // The requesting process has already disconnected.
         }
     }
 
