@@ -130,16 +130,8 @@ public class PackageManagerCompat {
                 final ServiceInfo[] res = new ServiceInfo[N];
                 for (int i = 0; i < N; i++) {
                     final BPackage.Service s = p.services.get(i);
-                    //res[num++] = generateServiceInfo(s, flags, state, userId);
                     ServiceInfo serviceInfo = generateServiceInfo(s, flags, state, userId);
-                    if(serviceInfo == null) continue;
-                    if ((flags & PackageManager.GET_META_DATA) != 0) {
-                        if(serviceInfo.metaData != null){
-                            res[num++] = serviceInfo;
-                        }
-                    }else{
-                        res[num++] = serviceInfo;
-                    }
+                    if (serviceInfo != null) res[num++] = serviceInfo;
                 }
                 pi.services = ArrayUtils.trimToSize(res, num);
             }
@@ -200,6 +192,13 @@ public class PackageManagerCompat {
         try {
             base = BlackBoxCore.getContext().getPackageManager().getPackageInfo(p.packageName, flags);
         } catch (PackageManager.NameNotFoundException ignored) {
+        }
+        if (base != null && p.installOption.isFlag(InstallOption.FLAG_SYSTEM)) {
+            pi.splitNames = base.splitNames;
+            pi.splitRevisionCodes = base.splitRevisionCodes;
+            pi.baseRevisionCode = base.baseRevisionCode;
+            pi.firstInstallTime = base.firstInstallTime;
+            pi.lastUpdateTime = base.lastUpdateTime;
         }
         if ((flags & PackageManager.GET_SIGNATURES) != 0) {
             if (base == null) {

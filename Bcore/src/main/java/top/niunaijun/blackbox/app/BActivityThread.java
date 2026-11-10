@@ -372,7 +372,11 @@ public class BActivityThread extends IBActivityThread.Stub {
         } catch (Throwable ignored) {
         }
 
-        PackageInfo packageInfo = BlackBoxCore.getBPackageManager().getPackageInfo(packageName, PackageManager.GET_PROVIDERS, BActivityThread.getUserId());
+        PackageInfo packageInfo = BlackBoxCore.getBPackageManager().getPackageInfo(packageName,
+                PackageManager.GET_PROVIDERS | PackageManager.GET_META_DATA, BActivityThread.getUserId());
+        if (packageInfo == null || packageInfo.applicationInfo == null) {
+            throw new IllegalStateException("Missing virtual package during startup: " + packageName);
+        }
         ApplicationInfo applicationInfo = packageInfo.applicationInfo;
         if (packageInfo.providers == null) {
             packageInfo.providers = new ProviderInfo[]{};

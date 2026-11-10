@@ -1,5 +1,9 @@
 package com.zu.virtual
 
+import android.app.ActivityManager
+import android.os.Build
+import android.util.AtomicFile
+import java.io.File
 import android.app.Activity
 import android.app.AlertDialog
 import android.content.Intent
@@ -33,6 +37,7 @@ class MainActivity : Activity() {
         })
         root.addView(button("Play Store") { openGoogle(false) })
         root.addView(button("Play Games") { openGoogle(true) })
+        root.addView(button("Play crash details") { showCrashDetails() })
         status = label("", 14f)
         root.addView(status)
         root.addView(label("My apps", 21f))
@@ -127,6 +132,30 @@ class MainActivity : Activity() {
 
     private fun requireSuccess(result: Pair<Boolean, String>) {
         check(result.first) { result.second.ifBlank { "Virtual installation failed." } }
+    }
+
+    private fun showCrashDetails() {
+        val stack = runCatching {
+            AtomicFile(File(filesDir, "play-crash.txt")).openRead().bufferedReader().use { it.readText() }
+        }.getOrNull()
+        val exits = if (Build.VERSION.SDK_INT >= 30) runCatching {
+            (getSystemService(ACTIVITY_SERVICE) as ActivityManager)
+                .getHistoricalProcessExitReasons(packageName, 0, 12)
+                .filter { it.reason in listOf(android.app.ApplicationExitInfo.REASON_CRASH,
+                        android.app.ApplicationExitInfo.REASON_CRASH_NATIVE, android.app.ApplicationExitInfo.REASON_ANR) }
+                .take(3).joinToString("\n") {
+                    "${java.util.Date(it.timestamp)}  ${it.processName}  reason=${it.reason} status=${it.status}"
+                }
+        }.getOrNull() else null
+        val report = listOfNotNull(stack, exits).filter { it.isNotBlank() }.joinToString("\n")
+        AlertDialog.Builder(this).setTitle("Play crash details")
+            .setMessage(report.ifEmpty { "No crash recorded yet. Open Play Store, then check here again." })
+            .setPositiveButton("Close", null).apply {
+                if (report.isNotEmpty()) setNeutralButton("Copy") { _, _ ->
+                    (getSystemService(CLIPBOARD_SERVICE) as android.content.ClipboardManager)
+                        .setPrimaryClip(android.content.ClipData.newPlainText("Play crash", report))
+                }
+            }.show()
     }
 
     private fun openGoogle(games: Boolean) {
