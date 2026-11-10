@@ -7,6 +7,7 @@ import android.net.Network;
 import android.net.LinkProperties;
 
 import java.lang.reflect.Method;
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Array;
 import java.net.InetAddress;
@@ -20,6 +21,7 @@ import top.niunaijun.blackbox.fake.hook.ScanClass;
 import top.niunaijun.blackbox.fake.hook.MethodHook;
 import top.niunaijun.blackbox.fake.hook.ProxyMethod;
 import top.niunaijun.blackbox.utils.Slog;
+import top.niunaijun.blackbox.BlackBoxCore;
 
 /**
  * updated by alex5402 on 4/12/21.
@@ -496,37 +498,46 @@ public class IConnectivityManagerProxy extends BinderInvocationStub {
         }
     }
 
-    // Hook for getActiveNetworkInfoForUid - important for per-app network access
+    @ProxyMethod("getNetworkInfoForUid")
+    public static class GetNetworkInfoForUid extends MethodHook {
+        @Override
+        protected Object hook(Object who, Method method, Object[] args) throws Throwable {
+            // Android calls this with (network, uid, ignoreBlocked). The guest
+            // shares the host's real network access and firewall restrictions.
+            if (args.length >= 3 && args[1] instanceof Integer && args[2] instanceof Boolean) {
+                if (!isOwnNetworkUid((Integer) args[1])) return null;
+                args[1] = BlackBoxCore.getHostUid();
+                args[2] = false;
+            }
+            return queryVisibleNetwork(who, method, args);
+        }
+    }
+
     @ProxyMethod("getActiveNetworkInfoForUid")
     public static class GetActiveNetworkInfoForUid extends MethodHook {
         @Override
         protected Object hook(Object who, Method method, Object[] args) throws Throwable {
-            Slog.d(TAG, "Intercepting getActiveNetworkInfoForUid for internet access");
-            try {
-                // Try to use the original method first
-                Object result = method.invoke(who, args);
-                if (result != null) {
-                    return result;
-                }
-                
-                // If original method fails, create a basic NetworkInfo
-                Slog.d(TAG, "Creating fallback NetworkInfo for UID");
-                return createBasicNetworkInfo();
-                
-            } catch (Exception e) {
-                Slog.w(TAG, "Error in getActiveNetworkInfoForUid, creating fallback: " + e.getMessage());
-                return createBasicNetworkInfo();
-            }
+            if (!isOwnNetworkUid((Integer) args[0])) return null;
+            // The per-UID active query is privileged. Query the real caller's
+            // active network on the original binder, avoiding proxy recursion.
+            Method active = method.getDeclaringClass().getMethod("getActiveNetworkInfo");
+            return queryVisibleNetwork(who, active, new Object[0]);
         }
-        
-        private Object createBasicNetworkInfo() {
-            try {
-                // Use the universal NetworkInfo creation method
-                return createNetworkInfo(ConnectivityManager.TYPE_WIFI, 0, "WIFI", "");
-            } catch (Exception e) {
-                Slog.e(TAG, "Failed to create fallback NetworkInfo for UID: " + e.getMessage());
+    }
+
+    private static boolean isOwnNetworkUid(int uid) {
+        return uid >= 0 && (uid == BlackBoxCore.getHostUid() || uid == BlackBoxCore.getBUid());
+    }
+
+    private static Object queryVisibleNetwork(Object who, Method method, Object[] args) throws Throwable {
+        try {
+            return method.invoke(who, args);
+        } catch (InvocationTargetException e) {
+            if (e.getCause() instanceof SecurityException) {
+                Slog.w(TAG, method.getName() + ": network information unavailable to host");
                 return null;
             }
+            throw e.getCause();
         }
     }
 
